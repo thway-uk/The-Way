@@ -1,7 +1,6 @@
 import os
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
 from pathlib import Path
 
 # Paths
@@ -10,7 +9,7 @@ OUTPUT_DIR = "site"
 PAGES_DIR = os.path.join(OUTPUT_DIR, "pages")
 POSTS_DIR = os.path.join(OUTPUT_DIR, "posts")
 
-# Create folders
+# Create base folders
 os.makedirs(PAGES_DIR, exist_ok=True)
 os.makedirs(POSTS_DIR, exist_ok=True)
 
@@ -19,43 +18,68 @@ tree = ET.parse(FEED_FILE)
 root = tree.getroot()
 ns = {'atom': 'http://www.w3.org/2005/Atom'}
 
-# Prepare list of output file links
 index_links = []
 
-# Loop through entries
 for entry in root.findall("atom:entry", ns):
     title = entry.find("atom:title", ns).text
     content = entry.find("atom:content", ns).text
     link = entry.find("atom:link", ns).attrib.get("href")
 
-    # Slug from title
+    # Create slug from title
     slug = re.sub(r"[^\w\-]", "-", title.lower()).strip("-")
 
-    # Try to get date from URL
+    # Extract year, month, day from URL (example URL: https://example.com/2025/08/04/post-title/)
     date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', link)
-    if date_match:
-        year, month, day = date_match.groups()
-        dir_path = os.path.join(POSTS_DIR, year, month)
-        os.makedirs(dir_path, exist_ok=True)
-        file_path = os.path.join(dir_path, f"{slug}.html")
-        rel_path = f"posts/{year}/{month}/{slug}.html"
-    else:
-        file_path = os.path.join(PAGES_DIR, f"{slug}.html")
-        rel_path = f"pages/{slug}.html"
+    if not date_match:
+        print(f"Skipping entry '{title}' due to missing date in URL")
+        continue
+    year, month, day = date_match.groups()
 
-    # Write post/page
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(f"<html><head><title>{title}</title></head><body>")
-        f.write(f"<h1>{title}</h1>\n{content}")
-        f.write("</body></html>")
+    # Build output directory for this post
+    post_dir = os.path.join(POSTS_DIR, year, month)
+    os.makedirs(post_dir, exist_ok=True)
 
-    # Add to index
-    index_links.append(f'<li><a href="{rel_path}">{title}</a></li>')
+    # Output HTML file path
+    output_file = os.path.join(post_dir, f"{slug}.html")
 
-# Write index.html
+    # Write a simple HTML page
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>{title}</title>
+</head>
+<body>
+    <h1>{title}</h1>
+    <div>{content}</div>
+    <p><a href="../../index.html">Back to index</a></p>
+</body>
+</html>"""
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    # Prepare link for index (relative to index.html)
+    relative_path = f"posts/{year}/{month}/{slug}.html"
+    index_links.append(f'<li><a href="{relative_path}">{title} ({year}-{month}-{day})</a></li>')
+
+# Generate index.html listing all posts
+index_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Blog Index</title>
+</head>
+<body>
+    <h1>Blog Posts</h1>
+    <ul>
+        {''.join(index_links)}
+    </ul>
+</body>
+</html>"""
+
 index_path = os.path.join(OUTPUT_DIR, "index.html")
 with open(index_path, "w", encoding="utf-8") as f:
-    f.write("<html><head><title>Index</title></head><body>")
-    f.write("<h1>All Posts and Pages</h1><ul>")
-    f.write("\n".join(index_links))
-    f.write("</ul></body></html>")
+    f.write(index_html)
+
+print(f"Generated {len(index_links)} posts and index at '{OUTPUT_DIR}'")
