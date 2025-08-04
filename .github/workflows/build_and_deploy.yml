@@ -3,7 +3,7 @@ name: Build and Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main    # change this if your default branch is different
+      - main    # Change if your default branch is different
   workflow_dispatch:
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
         run: pip install feedparser
 
       - name: Run build script
-        run: python build_site.py
+        run: python build_script.py
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
