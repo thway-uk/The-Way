@@ -1,95 +1,61 @@
 import os
 import re
-import feedparser
-from urllib.parse import urlparse
-from html import unescape
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from pathlib import Path
 
+# Paths
 FEED_FILE = "feed.atom"
 OUTPUT_DIR = "site"
+PAGES_DIR = os.path.join(OUTPUT_DIR, "pages")
+POSTS_DIR = os.path.join(OUTPUT_DIR, "posts")
 
-def slugify(text):
-    text = text.lower()
-    text = re.sub(r'\s+', '-', text)
-    text = re.sub(r'[^\w\-]', '', text)
-    return text.strip('-') or "index"
+# Create folders
+os.makedirs(PAGES_DIR, exist_ok=True)
+os.makedirs(POSTS_DIR, exist_ok=True)
 
-def extract_date_from_url(url):
-    match = re.search(r'/(\d{4})/(\d{2})/', url)
-    if match:
-        return match.group(1), match.group(2)
-    return None, None
+# Load Atom feed
+tree = ET.parse(FEED_FILE)
+root = tree.getroot()
+ns = {'atom': 'http://www.w3.org/2005/Atom'}
 
-def write_html(folder_path, title, content):
-    os.makedirs(folder_path, exist_ok=True)
-    filepath = os.path.join(folder_path, "index.html")
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>{title}</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-body {{ font-family: sans-serif; max-width: 800px; margin: auto; padding: 2em; }}
-h1 {{ color: #222; }}
-</style>
-</head>
-<body>
-<h1>{title}</h1>
-<div>{content}</div>
-</body>
-</html>""")
+# Prepare list of output file links
+index_links = []
 
-def main():
-    feed = feedparser.parse(FEED_FILE)
-    posts = []
-    pages = []
+# Loop through entries
+for entry in root.findall("atom:entry", ns):
+    title = entry.find("atom:title", ns).text
+    content = entry.find("atom:content", ns).text
+    link = entry.find("atom:link", ns).attrib.get("href")
 
-    for entry in feed.entries:
-        title = getattr(entry, "title", "Untitled")
-        content = ""
-        if hasattr(entry, "content"):
-            content = unescape(entry.content[0].value)
-        elif hasattr(entry, "summary"):
-            content = unescape(entry.summary)
-        else:
-            content = ""
+    # Slug from title
+    slug = re.sub(r"[^\w\-]", "-", title.lower()).strip("-")
 
-        url = entry.link
-        year, month = extract_date_from_url(url)
-        slug = slugify(url.rstrip('/').split('/')[-1])
+    # Try to get date from URL
+    date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', link)
+    if date_match:
+        year, month, day = date_match.groups()
+        dir_path = os.path.join(POSTS_DIR, year, month)
+        os.makedirs(dir_path, exist_ok=True)
+        file_path = os.path.join(dir_path, f"{slug}.html")
+        rel_path = f"posts/{year}/{month}/{slug}.html"
+    else:
+        file_path = os.path.join(PAGES_DIR, f"{slug}.html")
+        rel_path = f"pages/{slug}.html"
 
-        if year and month:
-            folder_path = os.path.join(OUTPUT_DIR, year, month, slug)
-            posts.append((title, f"{year}/{month}/{slug}/"))
-        else:
-            folder_path = os.path.join(OUTPUT_DIR, "pages", slug)
-            pages.append((title, f"pages/{slug}/"))
-
-        write_html(folder_path, title, content)
-
-    # Create index.html with all links
-    index_path = os.path.join(OUTPUT_DIR, "index.html")
-    with open(index_path, "w", encoding="utf-8") as f:
-        f.write("""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>Table of Contents</title></head>
-<body>
-<h1>Table of Contents</h1>
-""")
-        if pages:
-            f.write("<h2>Pages</h2><ul>\n")
-            for title, href in sorted(pages):
-                f.write(f'<li><a href="{href}">{title}</a></li>\n')
-            f.write("</ul>\n")
-
-        if posts:
-            f.write("<h2>Posts</h2><ul>\n")
-            for title, href in sorted(posts, reverse=True):
-                f.write(f'<li><a href="{href}">{title}</a></li>\n')
-            f.write("</ul>\n")
-
+    # Write post/page
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(f"<html><head><title>{title}</title></head><body>")
+        f.write(f"<h1>{title}</h1>\n{content}")
         f.write("</body></html>")
 
-if __name__ == "__main__":
-    main()
+    # Add to index
+    index_links.append(f'<li><a href="{rel_path}">{title}</a></li>')
+
+# Write index.html
+index_path = os.path.join(OUTPUT_DIR, "index.html")
+with open(index_path, "w", encoding="utf-8") as f:
+    f.write("<html><head><title>Index</title></head><body>")
+    f.write("<h1>All Posts and Pages</h1><ul>")
+    f.write("\n".join(index_links))
+    f.write("</ul></body></html>")
