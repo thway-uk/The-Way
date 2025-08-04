@@ -1,21 +1,18 @@
 import os
 import shutil
 import re
-import hashlib
 from html import unescape
 import feedparser
+from datetime import datetime
 
 POSTS_DIR = "posts"
-LOCAL_FEED_FILE = "feed.atom"  # Your backup Atom feed file
+LOCAL_FEED_FILE = "feed.atom"
 
 def slugify(text):
     text = text.lower()
     text = re.sub(r'\s+', '-', text)
     text = re.sub(r'[^\w\-]', '', text)
     return text.strip('-')
-
-def get_content_hash(content):
-    return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 def clear_posts_folder(posts_dir):
     if os.path.exists(posts_dir):
@@ -36,8 +33,15 @@ def parse_feed(feed):
         content = getattr(entry, 'content', [{'value': ''}])[0]['value']
         content = unescape(content)
         slug = slugify(title)
-        url = f"{slug}.html"
 
+        # Use published date to build folder path (year/month)
+        if hasattr(entry, 'published_parsed'):
+            dt = datetime(*entry.published_parsed[:6])
+            date_path = f"{dt.year}/{dt.month:02d}"
+        else:
+            date_path = "undated"
+
+        # Detect if this entry is a page by checking tags category
         is_page = any(
             cat.term.endswith('#page') for cat in getattr(entry, 'tags', [])
         )
@@ -45,8 +49,9 @@ def parse_feed(feed):
         post_data = {
             "title": title,
             "slug": slug,
-            "url": url,
-            "content": content
+            "content": content,
+            "date_path": date_path,
+            "is_page": is_page,
         }
 
         if is_page:
@@ -56,70 +61,58 @@ def parse_feed(feed):
 
     return pages, posts
 
-def write_html(post_data, output_dir):
-    filename = os.path.join(output_dir, post_data['url'])
-    with open(filename, 'w', encoding='utf-8') as f:
+def write_post_html(post_data):
+    # Preserve folder structure using date_path
+    folder_path = os.path.join(POSTS_DIR, post_data['date_path'])
+    os.makedirs(folder_path, exist_ok=True)
+
+    filepath = os.path.join(folder_path, f"{post_data['slug']}.html")
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write(f"""<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="UTF-8">
-    <title>{post_data['title']}</title>
-</head>
+<head><meta charset="UTF-8"><title>{post_data['title']}</title></head>
 <body>
-    <h1>{post_data['title']}</h1>
-    {post_data['content']}
+<h1>{post_data['title']}</h1>
+{post_data['content']}
 </body>
 </html>""")
 
-def generate_index_html(pages, posts, output_dir):
-    toc_items = []
+def generate_index_html(pages, posts):
+    # Pages and posts links must include their date_path
+    toc_html = "<h2>Pages</h2><ul>"
+    for page in pages:
+        href = f"{page['date_path']}/{page['slug']}.html"
+        toc_html += f'<li><a href="{href}">{page["title"]}</a></li>'
+    toc_html += "</ul>"
 
-    if pages:
-        toc_items.append("<h2>Pages</h2><ul>")
-        for page in pages:
-            toc_items.append(f'<li><a href="{page["url"]}">{page["title"]}</a></li>')
-        toc_items.append("</ul>")
-
-    if posts:
-        toc_items.append("<h2>Blog Posts</h2><ul>")
-        for post in posts:
-            toc_items.append(f'<li><a href="{post["url"]}">{post["title"]}</a></li>')
-        toc_items.append("</ul>")
-
-    toc_html = "\n".join(toc_items)
+    toc_html += "<h2>Posts</h2><ul>"
+    for post in posts:
+        href = f"{post['date_path']}/{post['slug']}.html"
+        toc_html += f'<li><a href="{href}">{post["title"]}</a></li>'
+    toc_html += "</ul>"
 
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(f"""<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="UTF-8">
-    <title>Table of Contents</title>
-</head>
+<head><meta charset="UTF-8"><title>Table of Contents</title></head>
 <body>
-    <h1>Table of Contents</h1>
-    {toc_html}
+<h1>Table of Contents</h1>
+{toc_html}
 </body>
 </html>""")
 
 def main():
-    print("Reading feed from local file...")
     feed = feedparser.parse(LOCAL_FEED_FILE)
-
-    print("Parsing feed...")
     pages, posts = parse_feed(feed)
-
-    print(f"Found {len(pages)} pages and {len(posts)} blog posts.")
 
     clear_posts_folder(POSTS_DIR)
 
-    print("Writing HTML files...")
-    for post in posts + pages:
-        write_html(post, POSTS_DIR)
+    # Write pages and posts preserving folder structure
+    for item in pages + posts:
+        write_post_html(item)
 
-    print("Generating index.html...")
-    generate_index_html(pages, posts, POSTS_DIR)
-
-    print("Done.")
+    generate_index_html(pages, posts)
+    print(f"Done: {len(posts)} posts and {len(pages)} pages generated.")
 
 if __name__ == "__main__":
     main()
