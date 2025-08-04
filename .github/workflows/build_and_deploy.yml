@@ -3,18 +3,17 @@ name: Build and Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main
-  schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+      - main    # change this if your default branch is different
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  build-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -22,14 +21,14 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: |
-          pip install requests feedparser
+        run: pip install feedparser
 
       - name: Run build script
-        run: python build_script.py
+        run: python build_site.py
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./posts
+          publish_dir: ./site
+          publish_branch: gh-pages
