@@ -1,85 +1,87 @@
 import os
 import re
-import xml.etree.ElementTree as ET
-from pathlib import Path
+import requests
+import hashlib
+from bs4 import BeautifulSoup
+import feedparser
+from datetime import datetime
 
-# Paths
-FEED_FILE = "feed.atom"
-OUTPUT_DIR = "site"
-PAGES_DIR = os.path.join(OUTPUT_DIR, "pages")
-POSTS_DIR = os.path.join(OUTPUT_DIR, "posts")
+FEED_URL = 'https://your-blog.blogspot.com/feeds/posts/default?alt=atom'
+OUTPUT_DIR = 'posts'
 
-# Create base folders
-os.makedirs(PAGES_DIR, exist_ok=True)
-os.makedirs(POSTS_DIR, exist_ok=True)
+def slugify(title):
+    return re.sub(r'[^a-zA-Z0-9]+', '-', title.lower()).strip('-') + '.html'
 
-# Load Atom feed
-tree = ET.parse(FEED_FILE)
-root = tree.getroot()
-ns = {'atom': 'http://www.w3.org/2005/Atom'}
+def download_feed():
+    print("Downloading Atom feed...")
+    response = requests.get(FEED_URL)
+    response.raise_for_status()
+    with open("feed.atom", "w", encoding="utf-8") as f:
+        f.write(response.text)
+    print("Feed downloaded.")
+    return "feed.atom"
 
-index_links = []
+def parse_and_save_posts(atom_file):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    feed = feedparser.parse(atom_file)
+    print(f"Found {len(feed.entries)} entries in feed.")
+    for entry in feed.entries:
+        title = entry.get('title', 'Untitled')
+        content = entry.get('content', [{'value': ''}])[0]['value']
+        post_id = slugify(title)
 
-for entry in root.findall("atom:entry", ns):
-    title = entry.find("atom:title", ns).text
-    content = entry.find("atom:content", ns).text
-    link = entry.find("atom:link", ns).attrib.get("href")
+        # Optional: add date if you want
+        pub_date = entry.get('published', '')
+        pub_date = datetime.strptime(pub_date, '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%d %b %Y') if pub_date else ''
 
-    # Create slug from title
-    slug = re.sub(r"[^\w\-]", "-", title.lower()).strip("-")
-
-    # Extract year, month, day from URL (example URL: https://example.com/2025/08/04/post-title/)
-    date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', link)
-    if not date_match:
-        print(f"Skipping entry '{title}' due to missing date in URL")
-        continue
-    year, month, day = date_match.groups()
-
-    # Build output directory for this post
-    post_dir = os.path.join(POSTS_DIR, year, month)
-    os.makedirs(post_dir, exist_ok=True)
-
-    # Output HTML file path
-    output_file = os.path.join(post_dir, f"{slug}.html")
-
-    # Write a simple HTML page
-    html_content = f"""<!DOCTYPE html>
-<html lang="en">
+        html = f"""<!DOCTYPE html>
+<html>
 <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8">
     <title>{title}</title>
 </head>
 <body>
     <h1>{title}</h1>
+    <p><em>{pub_date}</em></p>
     <div>{content}</div>
-    <p><a href="../../index.html">Back to index</a></p>
+    <p><a href="../index.html">Back to Index</a></p>
 </body>
 </html>"""
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(html_content)
+        with open(os.path.join(OUTPUT_DIR, post_id), "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"Saved: {post_id}")
 
-    # Prepare link for index (relative to index.html)
-    relative_path = f"posts/{year}/{month}/{slug}.html"
-    index_links.append(f'<li><a href="{relative_path}">{title} ({year}-{month}-{day})</a></li>')
+def generate_index(atom_file):
+    feed = feedparser.parse(atom_file)
+    links = []
+    for entry in feed.entries:
+        title = entry.get('title', 'Untitled')
+        post_id = slugify(title)
+        links.append(f'<li><a href="posts/{post_id}">{title}</a></li>')
 
-# Generate index.html listing all posts
-index_html = f"""<!DOCTYPE html>
-<html lang="en">
+    index_html = f"""<!DOCTYPE html>
+<html>
 <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8">
     <title>Blog Index</title>
 </head>
 <body>
     <h1>Blog Posts</h1>
     <ul>
-        {''.join(index_links)}
+        {''.join(links)}
     </ul>
 </body>
 </html>"""
 
-index_path = os.path.join(OUTPUT_DIR, "index.html")
-with open(index_path, "w", encoding="utf-8") as f:
-    f.write(index_html)
+    with open("index.html", "w", encoding="utf-8") as f:
+        f.write(index_html)
+    print("Index page generated.")
 
-print(f"Generated {len(index_links)} posts and index at '{OUTPUT_DIR}'")
+def main():
+    atom_file = download_feed()
+    parse_and_save_posts(atom_file)
+    generate_index(atom_file)
+
+if __name__ == "__main__":
+    main()
