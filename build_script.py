@@ -21,37 +21,35 @@ def clear_posts_folder(posts_dir):
     os.makedirs(posts_dir, exist_ok=True)
 
 def parse_feed(feed):
-    posts = []
     pages = []
+    posts = []
 
     for entry in feed.entries:
         title = getattr(entry, 'title', None)
         if not title:
-            print("Skipping entry without title")
             continue
+
+        tags = getattr(entry, 'tags', [])
+        # Precise detection of pages by exact match
+        is_page = any(tag.term == "http://schemas.google.com/blogger/2008/kind#page" for tag in tags)
 
         content = getattr(entry, 'content', [{'value': ''}])[0]['value']
         content = unescape(content)
         slug = slugify(title)
 
-        # Use published date to build folder path (year/month)
+        # Use published date for folder structure
         if hasattr(entry, 'published_parsed'):
             dt = datetime(*entry.published_parsed[:6])
             date_path = f"{dt.year}/{dt.month:02d}"
         else:
             date_path = "undated"
 
-        # Detect if this entry is a page by checking tags category
-        is_page = any(
-            cat.term.endswith('#page') for cat in getattr(entry, 'tags', [])
-        )
-
         post_data = {
             "title": title,
             "slug": slug,
             "content": content,
             "date_path": date_path,
-            "is_page": is_page,
+            "is_page": is_page
         }
 
         if is_page:
@@ -62,7 +60,6 @@ def parse_feed(feed):
     return pages, posts
 
 def write_post_html(post_data):
-    # Preserve folder structure using date_path
     folder_path = os.path.join(POSTS_DIR, post_data['date_path'])
     os.makedirs(folder_path, exist_ok=True)
 
@@ -78,7 +75,6 @@ def write_post_html(post_data):
 </html>""")
 
 def generate_index_html(pages, posts):
-    # Pages and posts links must include their date_path
     toc_html = "<h2>Pages</h2><ul>"
     for page in pages:
         href = f"{page['date_path']}/{page['slug']}.html"
@@ -107,7 +103,6 @@ def main():
 
     clear_posts_folder(POSTS_DIR)
 
-    # Write pages and posts preserving folder structure
     for item in pages + posts:
         write_post_html(item)
 
