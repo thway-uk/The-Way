@@ -1,34 +1,33 @@
-name: Build and Deploy to GitHub Pages
+name: Build and Deploy Blog
 
 on:
   push:
     branches:
-      - main    # Change if your default branch is different
+      - main
   workflow_dispatch:
 
 jobs:
-  build-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: 3.x
 
       - name: Install dependencies
-        run: pip install feedparser
+        run: |
+          python -m pip install --upgrade pip
 
       - name: Run build script
         run: python build_script.py
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./site
-          publish_branch: gh-pages
