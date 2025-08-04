@@ -1,12 +1,15 @@
-name: Update Blog Posts from Atom Feed
+name: Build and Deploy to GitHub Pages
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '0 2 * * *'  # Every day at 2 AM UTC
-  workflow_dispatch:     # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
-  update-posts:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,10 +22,10 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt || true
+        run: pip install -r requirements.txt
 
-      - name: Run conversion script
-        run: python convert_atom_to_single_html_simple.py
+      - name: Run build script
+        run: python build_script.py
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
