@@ -6,7 +6,7 @@ from html import unescape
 import hashlib
 
 POSTS_DIR = "posts"
-LOCAL_FEED_FILE = "feed.atom"  # Your backup file path
+LOCAL_FEED_FILE = "feed.atom"  # Your backup Atom feed file path
 LIVE_FEED_URL = "https://www.thway.uk/feeds/posts/default"
 
 os.makedirs(POSTS_DIR, exist_ok=True)
@@ -24,8 +24,22 @@ def get_content_hash(content):
 def parse_feed(feed):
     posts = []
     for entry in feed.entries:
-        title = entry.title
-        content = entry.content[0].value if 'content' in entry else entry.summary
+        # Safely get title
+        title = getattr(entry, 'title', None)
+        if not title:
+            print("Skipping entry without title")
+            continue
+
+        # Safely get content or summary
+        content = None
+        if hasattr(entry, 'content'):
+            content = entry.content[0].value
+        elif hasattr(entry, 'summary'):
+            content = entry.summary
+        else:
+            print(f"Skipping entry '{title}' with no content")
+            continue
+
         content = unescape(content)
         slug = slugify(title)
         filename = f"{slug}.html"
@@ -133,4 +147,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
