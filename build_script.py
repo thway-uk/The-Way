@@ -3,9 +3,11 @@ import requests
 import feedparser
 import re
 from html import unescape
+import hashlib
 
-ATOM_FEED_URL = "https://www.thway.uk/feeds/posts/default"
 POSTS_DIR = "posts"
+LOCAL_FEED_FILE = "feed.atom"  # Your backup file path
+LIVE_FEED_URL = "https://www.thway.uk/feeds/posts/default"
 
 os.makedirs(POSTS_DIR, exist_ok=True)
 
@@ -15,20 +17,27 @@ def slugify(text):
     text = re.sub(r'[^\w\-]', '', text)
     return text.strip('-')
 
-def parse_feed_and_create_posts():
-    response = requests.get(ATOM_FEED_URL)
-    feed = feedparser.parse(response.content)
+def get_content_hash(content):
+    """Return hash of content for easy comparison"""
+    return hashlib.md5(content.encode('utf-8')).hexdigest()
 
+def parse_feed(feed):
+    posts = []
     for entry in feed.entries:
         title = entry.title
         content = entry.content[0].value if 'content' in entry else entry.summary
         content = unescape(content)
-
         slug = slugify(title)
         filename = f"{slug}.html"
-        filepath = os.path.join(POSTS_DIR, filename)
+        posts.append({
+            'title': title,
+            'content': content,
+            'filename': filename
+        })
+    return posts
 
-        html_content = f"""<!DOCTYPE html>
+def write_post_if_updated(filepath, title, content):
+    html_template = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -39,10 +48,89 @@ def parse_feed_and_create_posts():
 {content}
 </body>
 </html>"""
+    new_hash = get_content_hash(html_template)
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        print(f"Created {filepath}")
+    if os.path.exists(filepath):
+        with open(filepath, 'r', encoding='utf-8') as f:
+            existing_content = f.read()
+        existing_hash = get_content_hash(existing_content)
+        if existing_hash == new_hash:
+            print(f"No changes for {filepath}, skipping update.")
+            return False  # no update needed
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(html_template)
+    print(f"Written/updated post: {filepath}")
+    return True
+
+def generate_index(posts_dir):
+    files = sorted(
+        f for f in os.listdir(posts_dir)
+        if f.endswith('.html') and f != 'index.html'
+    )
+    links = '\n'.join(
+        f'<li><a href="{file}">{file[:-5].replace("-", " ").title()}</a></li>'
+        for file in files
+    )
+    index_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Blog Posts Index</title>
+</head>
+<body>
+<h1>Blog Posts</h1>
+<ul>
+{links}
+</ul>
+</body>
+</html>"""
+    index_path = os.path.join(posts_dir, 'index.html')
+    with open(index_path, 'w', encoding='utf-8') as f:
+        f.write(index_content)
+    print(f"Generated index at {index_path}")
+
+def load_local_feed(file_path):
+    if not os.path.exists(file_path):
+        print(f"Local feed file {file_path} not found.")
+        return None
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    feed = feedparser.parse(content)
+    print(f"Loaded {len(feed.entries)} entries from local feed file.")
+    return feed
+
+def fetch_live_feed(url):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        feed = feedparser.parse(response.content)
+        print(f"Fetched {len(feed.entries)} entries from live feed.")
+        return feed
+    except Exception as e:
+        print(f"Failed to fetch live feed: {e}")
+        return None
+
+def main():
+    # Step 1: Bulk import/update from local feed file
+    local_feed = load_local_feed(LOCAL_FEED_FILE)
+    if local_feed:
+        local_posts = parse_feed(local_feed)
+        for post in local_posts:
+            filepath = os.path.join(POSTS_DIR, post['filename'])
+            write_post_if_updated(filepath, post['title'], post['content'])
+
+    # Step 2: Incremental update from live feed URL
+    live_feed = fetch_live_feed(LIVE_FEED_URL)
+    if live_feed:
+        live_posts = parse_feed(live_feed)
+        for post in live_posts:
+            filepath = os.path.join(POSTS_DIR, post['filename'])
+            write_post_if_updated(filepath, post['title'], post['content'])
+
+    # Step 3: Generate or update index.html
+    generate_index(POSTS_DIR)
 
 if __name__ == "__main__":
-    parse_feed_and_create_posts()
+    main()
+    
