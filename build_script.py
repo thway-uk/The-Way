@@ -24,16 +24,28 @@ def parse_feed_and_create_posts():
         content = entry.content[0].value if 'content' in entry else entry.summary
         content = unescape(content)
 
-        date_prefix = entry.published[:10].replace('-', '') if 'published' in entry else 'unknown-date'
-
         slug = slugify(title)
-        filename = f"{date_prefix}-{slug}.html"
+        filename = f"{slug}.html"
         filepath = os.path.join(POSTS_DIR, filename)
 
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<title>{title}</title>
+</head>
+<body>
+<h1>{title}</h1>
+{content}
+</body>
+</html>"""
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"Created {filepath}")
+
+if __name__ == "__main__":
+    parse_feed_and_create_posts()
 <title>{title}</title>
 </head>
 <body>
