@@ -1,12 +1,17 @@
 import os
 import shutil
+import requests
+import feedparser
 import re
 from html import unescape
-import feedparser
+import hashlib
 from datetime import datetime
 
 POSTS_DIR = "posts"
+PAGES_DIR = "pages"
+INDEX_FILE = "index.html"
 LOCAL_FEED_FILE = "feed.atom"
+LIVE_FEED_URL = "https://www.thway.uk/feeds/posts/default"
 
 def slugify(text):
     text = text.lower()
@@ -14,100 +19,93 @@ def slugify(text):
     text = re.sub(r'[^\w\-]', '', text)
     return text.strip('-')
 
-def clear_posts_folder(posts_dir):
-    if os.path.exists(posts_dir):
-        print(f"Clearing existing posts folder: {posts_dir}")
-        shutil.rmtree(posts_dir)
-    os.makedirs(posts_dir, exist_ok=True)
+def get_content_hash(content):
+    return hashlib.md5(content.encode('utf-8')).hexdigest()
 
-def parse_feed(feed):
-    pages = []
+def clear_output_folders():
+    for folder in [POSTS_DIR, PAGES_DIR]:
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
+        os.makedirs(folder)
+
+def fetch_feed():
+    try:
+        response = requests.get(LIVE_FEED_URL)
+        if response.status_code == 200:
+            with open(LOCAL_FEED_FILE, 'w', encoding='utf-8') as f:
+                f.write(response.text)
+            return feedparser.parse(response.text)
+    except Exception:
+        pass
+    return feedparser.parse(LOCAL_FEED_FILE)
+
+def extract_post_type(entry):
+    for link in entry.links:
+        if '/pages/' in link.href:
+            return 'page'
+    return 'post'
+
+def save_html(path, title, content):
+    html = f"""<html><head><title>{title}</title></head>
+<body><h1>{title}</h1>{content}</body></html>"""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(html)
+
+def process_entries(feed):
     posts = []
-
+    pages = []
     for entry in feed.entries:
         title = getattr(entry, 'title', None)
-        if not title:
-            continue
-
-        tags = getattr(entry, 'tags', [])
-        # Precise detection of pages by exact match
-        is_page = any(tag.term == "http://schemas.google.com/blogger/2008/kind#page" for tag in tags)
-
         content = getattr(entry, 'content', [{'value': ''}])[0]['value']
         content = unescape(content)
+        updated = getattr(entry, 'updated', '')
+        post_type = extract_post_type(entry)
         slug = slugify(title)
-
-        # Use published date for folder structure
-        if hasattr(entry, 'published_parsed'):
-            dt = datetime(*entry.published_parsed[:6])
-            date_path = f"{dt.year}/{dt.month:02d}"
+        
+        if post_type == 'page':
+            path = os.path.join(PAGES_DIR, f"{slug}.html")
+            pages.append((title, path))
         else:
-            date_path = "undated"
+            try:
+                dt = datetime.strptime(updated, "%Y-%m-%dT%H:%M:%S.%fZ")
+            except ValueError:
+                dt = datetime.now()
+            year = str(dt.year)
+            month = f"{dt.month:02d}"
+            post_folder = os.path.join(POSTS_DIR, year, month)
+            os.makedirs(post_folder, exist_ok=True)
+            path = os.path.join(post_folder, f"{slug}.html")
+            posts.append((title, path))
 
-        post_data = {
-            "title": title,
-            "slug": slug,
-            "content": content,
-            "date_path": date_path,
-            "is_page": is_page
-        }
-
-        if is_page:
-            pages.append(post_data)
-        else:
-            posts.append(post_data)
-
+        save_html(path, title, content)
     return pages, posts
 
-def write_post_html(post_data):
-    folder_path = os.path.join(POSTS_DIR, post_data['date_path'])
-    os.makedirs(folder_path, exist_ok=True)
+def generate_index(pages, posts):
+    toc = "<html><head><title>Index</title></head><body><h1>Table of Contents</h1>\n"
 
-    filepath = os.path.join(folder_path, f"{post_data['slug']}.html")
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>{post_data['title']}</title></head>
-<body>
-<h1>{post_data['title']}</h1>
-{post_data['content']}
-</body>
-</html>""")
+    toc += "<h2>Pages</h2><ul>\n"
+    for title, path in pages:
+        rel_path = os.path.relpath(path, '.')
+        toc += f'<li><a href="{rel_path}">{title}</a></li>\n'
+    toc += "</ul>\n"
 
-def generate_index_html(pages, posts):
-    toc_html = "<h2>Pages</h2><ul>"
-    for page in pages:
-        href = f"{page['date_path']}/{page['slug']}.html"
-        toc_html += f'<li><a href="{href}">{page["title"]}</a></li>'
-    toc_html += "</ul>"
+    toc += "<h2>Posts</h2><ul>\n"
+    for title, path in posts:
+        rel_path = os.path.relpath(path, '.')
+        toc += f'<li><a href="{rel_path}">{title}</a></li>\n'
+    toc += "</ul>\n"
 
-    toc_html += "<h2>Posts</h2><ul>"
-    for post in posts:
-        href = f"{post['date_path']}/{post['slug']}.html"
-        toc_html += f'<li><a href="{href}">{post["title"]}</a></li>'
-    toc_html += "</ul>"
-
-    with open("index.html", "w", encoding="utf-8") as f:
-        f.write(f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>Table of Contents</title></head>
-<body>
-<h1>Table of Contents</h1>
-{toc_html}
-</body>
-</html>""")
+    toc += "</body></html>"
+    with open(INDEX_FILE, 'w', encoding='utf-8') as f:
+        f.write(toc)
 
 def main():
-    feed = feedparser.parse(LOCAL_FEED_FILE)
-    pages, posts = parse_feed(feed)
-
-    clear_posts_folder(POSTS_DIR)
-
-    for item in pages + posts:
-        write_post_html(item)
-
-    generate_index_html(pages, posts)
-    print(f"Done: {len(posts)} posts and {len(pages)} pages generated.")
+    clear_output_folders()
+    feed = fetch_feed()
+    pages, posts = process_entries(feed)
+    generate_index(pages, posts)
+    print("Site generated successfully.")
 
 if __name__ == "__main__":
     main()
+    
